@@ -31,11 +31,13 @@ int worker(void* thread_data) {
 
     worker_data_t* worker_data = (worker_data_t*) thread_data;
 
+    debug && printf("worker %d: starting\n", worker_data->worker_id);
+
     FILE *fptr;
     fptr = fopen(worker_data->input_path, "r");
     if (fptr == NULL) {
-       fprintf(stderr, "worker %d: error: fopen failed\n", worker_data->worker_id);
-       exit(1);
+        fprintf(stderr, "worker %d: error: fopen failed\n", worker_data->worker_id);
+        exit(1);
     }
 
   // no, seeking back is more complex
@@ -69,6 +71,7 @@ int worker(void* thread_data) {
 
     if (worker_data->chunk_start > 0) {
         // seek forward to find start of first number
+        debug && printf("worker %d: seeking forward to find start of first number\n", worker_data->worker_id);
         fseek(fptr, worker_data->chunk_start, SEEK_SET);
         char c;
         if (fread(&c, 1, 1, fptr) != 1) {
@@ -92,15 +95,49 @@ int worker(void* thread_data) {
   }
 
     long worker_result = 0;
-    int n = 0;
-    while (fscanf(fptr, "%d", &n) == 1) {
-        worker_result += n;
-        debug && printf("worker %d: ok: adding number: %d\n", worker_data->worker_id, n);
-        if (ftell(fptr) > worker_data->chunk_end) {
-            // usually, this will stop after chunk_end
-            // so if (chunk_start > 0), we skip the first number
-            // because it was consumed by another thread
+
+    // 1 and 10 are really slow
+    // 100 is still slow, and more is not faster
+    //#define FSCANF_RESULT_SIZE 1
+    //#define FSCANF_RESULT_SIZE 10
+    #define FSCANF_RESULT_SIZE 100
+    //#define FSCANF_RESULT_SIZE 1000
+    //#define FSCANF_RESULT_SIZE 10000
+
+    int fscanf_result[FSCANF_RESULT_SIZE];
+    int fscanf_result_size = 0;
+    // fill buffer
+    // TODO use only one fread(fptr) or fgets(fptr) to fill a string buffer of about 16*1024 bytes
+    //   then use sscanf(bufptr) to read numbers
+    //   https://stackoverflow.com/a/25142013/10440128
+    // or fread(fptr) ahead to store the file contents in the CPU cache
+    //   then use fscanf(fptr)
+    while (ftell(fptr) <= worker_data->chunk_end) {
+        debug && printf("worker %d: reading numbers from offset %ld\n", worker_data->worker_id, ftell(fptr));
+        fscanf_result_size = FSCANF_RESULT_SIZE;
+        for (int i = 0; i < FSCANF_RESULT_SIZE; i++) {
+            if (fscanf(fptr, "%d", &fscanf_result[i]) != 1) {
+                fscanf_result_size = i;
+                break;
+            }
+            // FIXME now this is broken
+            if (ftell(fptr) > worker_data->chunk_end) {
+                // usually, this will stop after chunk_end
+                // so if (chunk_start > 0), we skip the first number
+                // because it was consumed by another thread
+                fscanf_result_size = i + 1;
+                break;
+            }
+        }
+        if (fscanf_result_size == 0) {
             break;
+        }
+        // summarize
+        debug && printf("worker %d: adding %d numbers from %d to %d\n", worker_data->worker_id, fscanf_result_size, fscanf_result[0], fscanf_result[fscanf_result_size - 1]);
+        for (int i = 0; i < fscanf_result_size; i++) {
+            int n = fscanf_result[i];
+            worker_result += n;
+            //debug && printf("worker %d: ok: adding number: %d\n", worker_data->worker_id, n);
         }
     }
 
