@@ -66,12 +66,42 @@ https://stackoverflow.com/a/9587245/10440128
 
 ## run multiple sum in parallel
 
-todo
-
 this runs serial
 
+```console
+$ time { n=4; for i in $(seq $n); do seq $((1 + 10000000 / n * (i - 1))) $((10000000 / n * i)) | ./sum; done | ./sum; }
+50000005000000
+
+real    0m5.251s
+user    0m5.850s
+sys     0m0.442s
 ```
-for i in $(seq 4); do seq $((1 + 10000000 / 4 * (i - 1))) $((10000000 / 4 * i)) | ./sum; done | ./sum
+
+this runs parallel
+
+```console
+$ time { n=2; t=$(mktemp); p=; for i in $(seq $n); do seq $((1 + 10000000 / n * (i - 1))) $((10000000 / n * i)) | ./sum >>$t & p+=" $!"; done; wait $p; ./sum <$t; }
+50000005000000
+
+real    0m3.190s
+user    0m6.549s
+sys     0m0.577s
+
+$ time { n=4; t=$(mktemp); p=; for i in $(seq $n); do seq $((1 + 10000000 / n * (i - 1))) $((10000000 / n * i)) | ./sum >>$t & p+=" $!"; done; wait $p; ./sum <$t; }
+50000005000000
+
+real    0m3.338s
+user    0m9.707s
+sys     0m0.874s
+```
+
+success, this is 2x faster than serial
+
+`n=4` is not faster, because i have only 2 cpu cores
+
+```console
+$ grep -m1 "^cpu cores" /proc/cpuinfo
+cpu cores       : 2
 ```
 
 ## see also
